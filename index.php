@@ -2,10 +2,11 @@
 require_once("config.php");
 
 $content = file_get_contents("php://input");
-$json    = json_decode($content, true);
-$file    = fopen(LOGFILE, "a");
-$time    = time();
-$token   = false;
+$json = json_decode($content, true);
+$file = fopen(LOGFILE, "a");
+$time = time();
+$token = false;
+
 
 // retrieve the token
 if (!$token && isset($_SERVER["HTTP_X_HUB_SIGNATURE"])) {
@@ -16,15 +17,25 @@ if (!$token && isset($_SERVER["HTTP_X_HUB_SIGNATURE"])) {
     $token = $_GET["token"];
 }
 
+
+/* get user token and ip address */
+$client_ip = $_SERVER['REMOTE_ADDR'];
+
 // log the time
 date_default_timezone_set("UTC");
-fputs($file, date("d-m-Y (H:i:s)", $time) . "\n");
+
+
+fwrite($file, '=======================================================================' . PHP_EOL);
+fwrite($file, 'Request on [' . date("Y-m-d H:i:s") . '] from [' . $client_ip . ']' . PHP_EOL);
+fwrite($file, '=======================================================================' . PHP_EOL);
+
 
 // function to forbid access
-function forbid($file, $reason) {
+function forbid($file, $reason)
+{
     // explain why
-    if ($reason) fputs($file, "=== ERROR: " . $reason . " ===\n");
-    fputs($file, "*** ACCESS DENIED ***" . "\n\n\n");
+    if ($reason) fwrite($file, "=== ERROR: " . $reason . " ===\n");
+    fwrite($file, "Invalid token" . PHP_EOL);
     fclose($file);
 
     // forbid
@@ -33,11 +44,13 @@ function forbid($file, $reason) {
 }
 
 // function to return OK
-function ok() {
+function ok()
+{
     ob_start();
     header("HTTP/1.1 200 OK");
     header("Connection: close");
     header("Content-Length: " . ob_get_length());
+    echo("OK");
     ob_end_flush();
     ob_flush();
     flush();
@@ -46,8 +59,11 @@ function ok() {
 // Check for a GitHub signature
 if (!empty(TOKEN) && isset($_SERVER["HTTP_X_HUB_SIGNATURE"]) && $token !== hash_hmac($algo, $content, TOKEN)) {
     forbid($file, "X-Hub-Signature does not match TOKEN");
+    exit(0);
 // Check for a GitLab token
-} elseif (!empty(TOKEN) && isset($_SERVER["HTTP_X_GITLAB_TOKEN"]) && $token !== TOKEN) {
+}
+
+if (!empty(TOKEN) && isset($_SERVER["HTTP_X_GITLAB_TOKEN"]) && $token !== TOKEN) {
     forbid($file, "X-GitLab-Token does not match TOKEN");
 // Check for a $_GET token
 } elseif (!empty(TOKEN) && isset($_GET["token"]) && $token !== TOKEN) {
@@ -58,17 +74,16 @@ if (!empty(TOKEN) && isset($_SERVER["HTTP_X_HUB_SIGNATURE"]) && $token !== hash_
 } else {
     // check if pushed branch matches branch specified in config
     if ($json["ref"] === BRANCH) {
-        fputs($file, $content . PHP_EOL);
+        // fwrite($file, $content . PHP_EOL);
 
         // ensure directory is a repository
         if (file_exists(DIR . ".git") && is_dir(DIR)) {
             try {
                 // pull
-                fputs($file, "*** AUTO PULL INITIATED ***" . "\n");
-                //chdir(DIR);
-                $result = shell_exec(GIT);
+                fwrite($file, "*** AUTO PULL INITIATED ***" . PHP_EOL);
+                $result = exec(GIT);
 
-                fputs($file, $result . "\n");
+                fwrite($file, $result . PHP_EOL);
 
                 // return OK to prevent timeouts on AFTER_PULL
                 ok();
@@ -76,24 +91,24 @@ if (!empty(TOKEN) && isset($_SERVER["HTTP_X_HUB_SIGNATURE"]) && $token !== hash_
                 // execute AFTER_PULL if specified
                 if (!empty(AFTER_PULL)) {
                     try {
-                        fputs($file, "*** AFTER_PULL INITIATED ***" . "\n");
-                        $result = shell_exec(AFTER_PULL);
-                        fputs($file, $result . "\n");
+                        fwrite($file, "*** AFTER_PULL INITIATED ***" . PHP_EOL);
+                        $result = exec(AFTER_PULL);
+                        fwrite($file, $result . PHP_EOL);
                     } catch (Exception $e) {
-                        fputs($file, $e . "\n");
+                        fwrite($file, $e . PHP_EOL);
                     }
                 }
-                fputs($file, "*** AUTO PULL COMPLETE ***" . "\n");
+                fwrite($file, "*** AUTO PULL COMPLETE ***" . PHP_EOL);
             } catch (Exception $e) {
-                fputs($file, $e . "\n");
+                fwrite($file, $e . PHP_EOL);
             }
         } else {
-            fputs($file, "=== ERROR: DIR is not a repository ===" . "\n");
+            fwrite($file, "=== ERROR: DIR is not a repository ===" . PHP_EOL);
         }
-    } else{
-        fputs($file, "=== ERROR: Pushed branch does not match BRANCH ===\n");
+    } else {
+        fwrite($file, "=== ERROR: Pushed branch does not match BRANCH ===\n");
     }
 }
 
-fputs($file, "\n\n" . PHP_EOL);
+fwrite($file, "\n\n" . PHP_EOL);
 fclose($file);
